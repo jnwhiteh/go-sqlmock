@@ -6,46 +6,77 @@ import (
 	"regexp"
 )
 
-// Argument interface allows to match
-// any argument in specific way
-type Argument interface {
-	Match(driver.Value) bool
-}
-
-// an expectation interface
-type expectation interface {
-	fulfilled() bool
-	setError(err error)
-}
-
-// common expectation struct
-// satisfies the expectation interface
+// commonExpectation is a set of attributes that are common to all
+// expectations.
 type commonExpectation struct {
-	triggered bool
-	err       error
+	triggered bool  //whether or not the expectation was triggered
+	err       error // an error to be returned when triggered
 }
 
+// fulfilled returns whether or not the expectation was fulfilled
 func (e *commonExpectation) fulfilled() bool {
 	return e.triggered
 }
 
-func (e *commonExpectation) setError(err error) {
-	e.err = err
-}
-
-// query based expectation
-// adds a query matching logic
-type queryBasedExpectation struct {
+// A ExpectedBegin is triggered when the user calls Begin() on a database
+type ExpectedBegin struct {
 	commonExpectation
-	sqlRegex *regexp.Regexp
-	args     []driver.Value
 }
 
-func (e *queryBasedExpectation) queryMatches(sql string) bool {
-	return e.sqlRegex.MatchString(sql)
+// WillReturnError arranges for the triggered expectation to return an error
+// result
+func (e *ExpectedBegin) WillReturnError(err error) *ExpectedBegin {
+	e.err = err
+	return e
 }
 
-func (e *queryBasedExpectation) argsMatches(args []driver.Value) bool {
+// A RollbackException is triggered when the user calls Rollback() on a
+// transaction
+type ExpectedRollback struct {
+	commonExpectation
+}
+
+// WillReturnError arranges for the triggered expectation to return an error
+// result
+func (e *ExpectedRollback) WillReturnError(err error) *ExpectedRollback {
+	e.err = err
+	return e
+}
+
+// A ExpectedCommit is triggered when the user calls Commit() on a
+// transaction
+type ExpectedCommit struct {
+	commonExpectation
+}
+
+// WillReturnError arranges for the triggered expectation to return an error
+// result
+func (e *ExpectedCommit) WillReturnError(err error) *ExpectedCommit {
+	e.err = err
+	return e
+}
+
+// A PrepareExepectation is triggered by an explicit call to Prepare() a
+// statement for the database
+type ExpectedPrepare struct {
+	commonExpectation
+}
+
+func (e *ExpectedPrepare) WillReturnError(err error) *ExpectedPrepare {
+	e.err = err
+	return e
+}
+
+// A queryExpectedBased contains fields and implementations that are common
+// to expectations that can take parameters, such as Query() and Exec()
+type argExpectation struct {
+	sqlRegex *regexp.Regexp // a regular expression to match the query
+	args     []driver.Value // the arguments that were passed as parameters
+}
+
+// argMatches tests whether or not a list of arguments matches those that are
+// expected
+func (e *queryExpectedBased) argsMatches(args []driver.Value) bool {
 	if nil == e.args {
 		return true
 	}
@@ -53,13 +84,6 @@ func (e *queryBasedExpectation) argsMatches(args []driver.Value) bool {
 		return false
 	}
 	for k, v := range args {
-		matcher, ok := e.args[k].(Argument)
-		if ok {
-			if !matcher.Match(v) {
-				return false
-			}
-			continue
-		}
 		vi := reflect.ValueOf(v)
 		ai := reflect.ValueOf(e.args[k])
 		switch vi.Kind() {
@@ -89,38 +113,63 @@ func (e *queryBasedExpectation) argsMatches(args []driver.Value) bool {
 	return true
 }
 
-// begin transaction
-type expectedBegin struct {
+func (e *queryExpectedBased) queryMatches(sql string) bool {
+	return e.sqlRegex.MatchString(sql)
+}
+
+// A ExpectedQuery is triggered by a call to Query() either directly on the
+// database or within a transaction
+type ExpectedQuery struct {
 	commonExpectation
+	queryExpectedBased
+	rows driver.Rows // the rows to be returned by this query
 }
 
-// tx commit
-type expectedCommit struct {
+// WillReturnError arranges for the triggered expectation to return an error
+// result
+func (e *ExpectedQuery) WillReturnError(err error) *ExpectedQuery {
+	e.err = err
+	return e
+}
+
+// WithArgs specifies the arguments that are expected when the query is made
+func (e *ExpectedQuery) WithArgs(args ...driver.Value) *ExpectedQuery {
+	e.args = args
+	return e
+}
+
+// WillReturnRows specifies the set of resulting rows that will be returned
+// by the triggered query
+func (e *ExpectedQuery) WillReturnRows(rows driver.Rows) *ExpectedQuery {
+	e.rows = rows
+	return e
+}
+
+// A ExpectedExec is triggered by a call to Exec() either directly on the
+// database or within a transaction
+type ExpectedExec struct {
 	commonExpectation
+	queryExpectedBased
+	result driver.Result // the result to be returned
+
 }
 
-// tx rollback
-type expectedRollback struct {
-	commonExpectation
+// WillReturnError arranges for the triggered expectation to return an error
+// result
+func (e *ExpectedExec) WillReturnError(err error) *ExpectedExec {
+	e.err = err
+	return e
 }
 
-// query expectation
-type expectedQuery struct {
-	queryBasedExpectation
-
-	rows driver.Rows
+// WithArgs specifies the arguments that are expected when the query is made
+func (e *ExpectedExec) WithArgs(args ...driver.Value) *ExpectedExec {
+	e.args = args
+	return e
 }
 
-// exec query expectation
-type expectedExec struct {
-	queryBasedExpectation
-
-	result driver.Result
-}
-
-// Prepare expectation
-type expectedPrepare struct {
-	commonExpectation
-
-	statement driver.Stmt
+// WillReturnResult arranges for an expected Exec() to return a particular
+// result
+func (e *ExpectedExec) WillReturnResult(result driver.Result) *ExpectedExec {
+	e.result = result
+	return e
 }

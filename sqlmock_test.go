@@ -1,7 +1,6 @@
 package sqlmock
 
 import (
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -10,11 +9,11 @@ import (
 // test the case when db is not triggered and expectations
 // are not asserted on close
 func TestIssue4(t *testing.T) {
-	db, err := New()
+	mock, db, err := New()
 	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
 	}
-	ExpectQuery("some sql query which will not be called").
+	mock.ExpectQuery("some sql query which will not be called").
 		WillReturnRows(NewRows([]string{"id"}))
 
 	err = db.Close()
@@ -24,14 +23,14 @@ func TestIssue4(t *testing.T) {
 }
 
 func TestMockQuery(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	rs := NewRows([]string{"id", "title"}).FromCSVString("5,hello world")
 
-	ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
 		WithArgs(5).
 		WillReturnRows(rs)
 
@@ -66,7 +65,7 @@ func TestMockQuery(t *testing.T) {
 }
 
 func TestMockQueryTypes(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
@@ -77,7 +76,7 @@ func TestMockQueryTypes(t *testing.T) {
 	rs := NewRows(columns)
 	rs.AddRow(5, timestamp, true)
 
-	ExpectQuery("SELECT (.+) FROM sales WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM sales WHERE id = ?").
 		WithArgs(5).
 		WillReturnRows(rs)
 
@@ -117,14 +116,14 @@ func TestMockQueryTypes(t *testing.T) {
 }
 
 func TestTransactionExpectations(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	// begin and commit
-	ExpectBegin()
-	ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -137,8 +136,8 @@ func TestTransactionExpectations(t *testing.T) {
 	}
 
 	// begin and rollback
-	ExpectBegin()
-	ExpectRollback()
+	mock.ExpectBegin()
+	mock.ExpectRollback()
 
 	tx, err = db.Begin()
 	if err != nil {
@@ -151,7 +150,7 @@ func TestTransactionExpectations(t *testing.T) {
 	}
 
 	// begin with an error
-	ExpectBegin().WillReturnError(fmt.Errorf("some err"))
+	mock.ExpectBegin().WillReturnError(fmt.Errorf("some err"))
 
 	tx, err = db.Begin()
 	if err == nil {
@@ -164,12 +163,12 @@ func TestTransactionExpectations(t *testing.T) {
 }
 
 func TestPrepareExpectations(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
-	// no expectations, w/o ExpectPrepare()
+	// no expectations, w/o mock.ExpectPrepare()
 	stmt, err := db.Prepare("SELECT (.+) FROM articles WHERE id = ?")
 	if err != nil {
 		t.Errorf("error '%s' was not expected while creating a prepared statement", err)
@@ -178,12 +177,12 @@ func TestPrepareExpectations(t *testing.T) {
 		t.Errorf("stmt was expected while creating a prepared statement")
 	}
 
-	// expect something else, w/o ExpectPrepare()
+	// expect something else, w/o mock.ExpectPrepare()
 	var id int
 	var title string
 	rs := NewRows([]string{"id", "title"}).FromCSVString("5,hello world")
 
-	ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
 		WithArgs(5).
 		WillReturnRows(rs)
 
@@ -201,7 +200,7 @@ func TestPrepareExpectations(t *testing.T) {
 	}
 
 	// expect normal result
-	ExpectPrepare()
+	mock.ExpectPrepare()
 	stmt, err = db.Prepare("SELECT (.+) FROM articles WHERE id = ?")
 	if err != nil {
 		t.Errorf("error '%s' was not expected while creating a prepared statement", err)
@@ -211,7 +210,7 @@ func TestPrepareExpectations(t *testing.T) {
 	}
 
 	// expect error result
-	ExpectPrepare().WillReturnError(fmt.Errorf("Some DB error occurred"))
+	mock.ExpectPrepare().WillReturnError(fmt.Errorf("Some DB error occurred"))
 	stmt, err = db.Prepare("SELECT (.+) FROM articles WHERE id = ?")
 	if err == nil {
 		t.Error("error was expected while creating a prepared statement")
@@ -226,18 +225,18 @@ func TestPrepareExpectations(t *testing.T) {
 }
 
 func TestPreparedQueryExecutions(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	rs1 := NewRows([]string{"id", "title"}).FromCSVString("5,hello world")
-	ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
 		WithArgs(5).
 		WillReturnRows(rs1)
 
 	rs2 := NewRows([]string{"id", "title"}).FromCSVString("2,whoop")
-	ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
 		WithArgs(2).
 		WillReturnRows(rs2)
 
@@ -281,7 +280,7 @@ func TestPreparedQueryExecutions(t *testing.T) {
 }
 
 func TestUnexpectedOperations(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
@@ -299,7 +298,7 @@ func TestUnexpectedOperations(t *testing.T) {
 		t.Error("error was expected querying row, since there was no such expectation")
 	}
 
-	ExpectRollback()
+	mock.ExpectRollback()
 
 	err = db.Close()
 	if err == nil {
@@ -308,20 +307,20 @@ func TestUnexpectedOperations(t *testing.T) {
 }
 
 func TestWrongExpectations(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
-	ExpectBegin()
+	mock.ExpectBegin()
 
 	rs1 := NewRows([]string{"id", "title"}).FromCSVString("5,hello world")
-	ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
+	mock.ExpectQuery("SELECT (.+) FROM articles WHERE id = ?").
 		WithArgs(5).
 		WillReturnRows(rs1)
 
-	ExpectCommit().WillReturnError(fmt.Errorf("deadlock occured"))
-	ExpectRollback() // won't be triggered
+	mock.ExpectCommit().WillReturnError(fmt.Errorf("deadlock occured"))
+	mock.ExpectRollback() // won't be triggered
 
 	stmt, err := db.Prepare("SELECT (.+) FROM articles WHERE id = ? FOR UPDATE")
 	if err != nil {
@@ -359,13 +358,13 @@ func TestWrongExpectations(t *testing.T) {
 }
 
 func TestExecExpectations(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	result := NewResult(1, 1)
-	ExpectExec("^INSERT INTO articles").
+	mock.ExpectExec("^INSERT INTO articles").
 		WithArgs("hello").
 		WillReturnResult(result)
 
@@ -398,7 +397,7 @@ func TestExecExpectations(t *testing.T) {
 }
 
 func TestRowBuilderAndNilTypes(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
@@ -407,7 +406,7 @@ func TestRowBuilderAndNilTypes(t *testing.T) {
 		AddRow(1, true, time.Now(), 5).
 		AddRow(2, false, nil, nil)
 
-	ExpectQuery("SELECT (.+) FROM sales").WillReturnRows(rs)
+	mock.ExpectQuery("SELECT (.+) FROM sales").WillReturnRows(rs)
 
 	rows, err := db.Query("SELECT * FROM sales")
 	if err != nil {
@@ -484,14 +483,14 @@ func TestRowBuilderAndNilTypes(t *testing.T) {
 }
 
 func TestArgumentReflectValueTypeError(t *testing.T) {
-	db, err := sql.Open("mock", "")
+	mock, db, err := New()
 	if err != nil {
 		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	rs := NewRows([]string{"id"}).AddRow(1)
 
-	ExpectQuery("SELECT (.+) FROM sales").WithArgs(5.5).WillReturnRows(rs)
+	mock.ExpectQuery("SELECT (.+) FROM sales").WithArgs(5.5).WillReturnRows(rs)
 
 	_, err = db.Query("SELECT * FROM sales WHERE x = ?", 5)
 	if err == nil {

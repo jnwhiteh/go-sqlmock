@@ -11,18 +11,18 @@ type conn struct {
 	active       expectation
 }
 
-// Close a mock database driver connection. It should
+// Close a mock database driver Connection. It should
 // be always called to ensure that all expectations
 // were met successfully. Returns error if there is any
 func (c *conn) Close() (err error) {
-	for _, e := range mock.conn.expectations {
+	for _, e := range c.expectations {
 		if !e.fulfilled() {
 			err = fmt.Errorf("there is a remaining expectation %T which was not matched yet", e)
 			break
 		}
 	}
-	mock.conn.expectations = []expectation{}
-	mock.conn.active = nil
+	c.expectations = []expectation{}
+	c.active = nil
 	return err
 }
 
@@ -89,11 +89,11 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 
 	// for backwards compatibility, ignore when Prepare not expected
 	if e == nil {
-		return &statement{mock.conn, stripQuery(query)}, nil
+		return &statement{c, stripQuery(query)}, nil
 	}
 	eq, ok := e.(*expectedPrepare)
 	if !ok {
-		return &statement{mock.conn, stripQuery(query)}, nil
+		return &statement{c, stripQuery(query)}, nil
 	}
 
 	eq.triggered = true
@@ -101,7 +101,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 		return nil, eq.err // mocked to return error
 	}
 
-	return &statement{mock.conn, stripQuery(query)}, nil
+	return &statement{c, stripQuery(query)}, nil
 }
 
 func (c *conn) Query(query string, args []driver.Value) (rw driver.Rows, err error) {

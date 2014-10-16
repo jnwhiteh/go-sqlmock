@@ -1,4 +1,5 @@
 /*
+
 Package sqlmock provides sql driver mock connecection, which allows to test database,
 create expectations and ensure the correct execution flow of any database operations.
 It hooks into Go standard library's database/sql package.
@@ -50,147 +51,128 @@ to work with:
         }
     }
 
+
+
+func TestMigrationApplied(t *testing.T) {
+    // Create a new DB instance and arrange for expectation checks (on defer)
+    dbMock, db, err := mocksql.New()
+    defer dbMock.Check(t)
+
+    // Arrange for the right response to be returned
+    dbMock.ExpectQuery("SELECT version FROM migrate LIMIT 1").
+    	WillReturnRows(sqlmock.Rows(columns).FromCSVString("1,1"))
+
+    // Call function that requires the database
+    err := emigrate.Migrate(db, 1)
+    if err != nil {
+    	t.Fatalf("Unexpected error: %s", err)
+    }
+}
+
 */
+
 package sqlmock
 
 import (
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
-	"regexp"
+	"sync"
 )
 
-var mock *mockDriver
-
-// Mock interface defines a mock which is returned
-// by any expectation and can be detailed further
-// with the methods this interface provides
-type Mock interface {
-	WithArgs(...driver.Value) Mock
-	WillReturnError(error) Mock
-	WillReturnRows(driver.Rows) Mock
-	WillReturnResult(driver.Result) Mock
-}
+// The global instance of the database driver
+var dbDriver *mockDriver
 
 type mockDriver struct {
-	conn *conn
-}
-
-func (d *mockDriver) Open(dsn string) (driver.Conn, error) {
-	return mock.conn, nil
+	driverName  string
+	sequence    int
+	connections map[string]*conn
+	mu          *sync.Mutex
 }
 
 func init() {
-	mock = &mockDriver{&conn{}}
-	sql.Register("mock", mock)
+	driverName := fmt.Sprintf("mocksql-%p", new(int))
+
+	// Create a new driver and register with the database/sql package
+	dbDriver = &mockDriver{
+		driverName:  driverName,
+		sequence:    0,
+		connections: make(map[string]*conn),
+		mu:          new(sync.Mutex),
+	}
+	sql.Register(driverName, dbDriver)
 }
 
-// New creates sqlmock database connection
-// and pings it so that all expectations could be
-// asserted on Close.
-func New() (db *sql.DB, err error) {
-	db, err = sql.Open("mock", "")
+// Open satisfiies the database/sql/driver.Open interface, but is only called
+// internally from the New() method. This is accomplished by uniquely
+// generating and not publishing the name of the database driver.
+func (d *mockDriver) Open(dsn string) (driver.Conn, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	c, ok := d.connections[dsn]
+	if ok {
+		// This should never happen, but just in case of insanity
+		return nil, errors.New("DSN collision error")
+	}
+	c = &conn{}
+	d.connections[dsn] = c
+	return c, nil
+}
+
+// reserveDSN increments the sequence counter and returns a DSN string that
+// will be unique.
+func (d *mockDriver) reserveDSN() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	dsn := fmt.Sprintf("mocksql://db/%d", d.sequence)
+	d.sequence++
+	return dsn
+}
+
+// getConnection fetches the connection object that is tied to the given DSN
+func (d *mockDriver) getConnection(dsn string) *conn {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	conn, ok := d.connections[dsn]
+	if ok {
+		return conn
+	}
+	return nil
+}
+
+// Create a new MockDB that can be used to state and verify expectations for
+// interaction with a database.
+func New() (*MockDB, *sql.DB, error) {
+	// Reserve a DSN for this connection
+	dsn := dbDriver.reserveDSN()
+
+	// Use the database/sql package to open the new connection
+	db, err := sql.Open(dbDriver.driverName, dsn)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
-	// ensure open connection, otherwise Close does not assert expectations
-	db.Ping()
-	return
-}
 
-// ExpectBegin expects transaction to be started
-func ExpectBegin() Mock {
-	e := &expectedBegin{}
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// ExpectCommit expects transaction to be commited
-func ExpectCommit() Mock {
-	e := &expectedCommit{}
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// ExpectRollback expects transaction to be rolled back
-func ExpectRollback() Mock {
-	e := &expectedRollback{}
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// ExpectPrepare expects Query to be prepared
-func ExpectPrepare() Mock {
-	e := &expectedPrepare{}
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// WillReturnError the expectation will return an error
-func (c *conn) WillReturnError(err error) Mock {
-	c.active.setError(err)
-	return c
-}
-
-// ExpectExec expects database Exec to be triggered, which will match
-// the given query string as a regular expression
-func ExpectExec(sqlRegexStr string) Mock {
-	e := &expectedExec{}
-	e.sqlRegex = regexp.MustCompile(sqlRegexStr)
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// ExpectQuery database Query to be triggered, which will match
-// the given query string as a regular expression
-func ExpectQuery(sqlRegexStr string) Mock {
-	e := &expectedQuery{}
-	e.sqlRegex = regexp.MustCompile(sqlRegexStr)
-
-	mock.conn.expectations = append(mock.conn.expectations, e)
-	mock.conn.active = e
-	return mock.conn
-}
-
-// WithArgs expectation should be called with given arguments.
-// Works with Exec and Query expectations
-func (c *conn) WithArgs(args ...driver.Value) Mock {
-	eq, ok := c.active.(*expectedQuery)
-	if !ok {
-		ee, ok := c.active.(*expectedExec)
-		if !ok {
-			panic(fmt.Sprintf("arguments may be expected only with query based expectations, current is %T", c.active))
-		}
-		ee.args = args
-	} else {
-		eq.args = args
+	// Ping the database to ensure the connection is properly opened
+	err = db.Ping()
+	if err != nil {
+		return nil, nil, err
 	}
-	return c
-}
 
-// WillReturnResult expectation will return a Result.
-// Works only with Exec expectations
-func (c *conn) WillReturnResult(result driver.Result) Mock {
-	eq, ok := c.active.(*expectedExec)
-	if !ok {
-		panic(fmt.Sprintf("driver.result may be returned only by exec expectations, current is %T", c.active))
+	// Grab a DB from the sql package
+	db, err = sql.Open("mock", dsn)
+	if err != nil {
+		return nil, nil, err
 	}
-	eq.result = result
-	return c
-}
+	// Fetch the underlying connection for this DSN
+	conn := dbDriver.getConnection(dsn)
+	if conn == nil {
+		return nil, nil, errors.New("Failed when looking up connection")
+	}
 
-// WillReturnRows expectation will return Rows.
-// Works only with Query expectations
-func (c *conn) WillReturnRows(rows driver.Rows) Mock {
-	eq, ok := c.active.(*expectedQuery)
-	if !ok {
-		panic(fmt.Sprintf("driver.rows may be returned only by query expectations, current is %T", c.active))
-	}
-	eq.rows = rows
-	return c
+	// TODO: Fix this
+	return nil, db, err
 }
