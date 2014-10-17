@@ -15,7 +15,7 @@ func (m matcher) Match(driver.Value) bool {
 }
 
 func TestQueryExpectationArgComparison(t *testing.T) {
-	e := &queryBasedExpectation{}
+	e := &ExpectedQuery{}
 	against := []driver.Value{5}
 	if !e.argsMatches(against) {
 		t.Error("arguments should match, since the no expectation was set")
@@ -60,7 +60,7 @@ func TestQueryExpectationArgComparison(t *testing.T) {
 }
 
 func TestQueryExpectationSqlMatch(t *testing.T) {
-	e := &expectedExec{}
+	e := &ExpectedExec{}
 	e.sqlRegex = regexp.MustCompile("SELECT x FROM")
 	if !e.queryMatches("SELECT x FROM someting") {
 		t.Errorf("Sql must have matched the query")

@@ -67,7 +67,7 @@ func (e *ExpectedPrepare) WillReturnError(err error) *ExpectedPrepare {
 	return e
 }
 
-// A queryExpectedBased contains fields and implementations that are common
+// A argExpectation contains fields and implementations that are common
 // to expectations that can take parameters, such as Query() and Exec()
 type argExpectation struct {
 	sqlRegex *regexp.Regexp // a regular expression to match the query
@@ -76,7 +76,7 @@ type argExpectation struct {
 
 // argMatches tests whether or not a list of arguments matches those that are
 // expected
-func (e *queryExpectedBased) argsMatches(args []driver.Value) bool {
+func (e *argExpectation) argsMatches(args []driver.Value) bool {
 	if nil == e.args {
 		return true
 	}
@@ -113,7 +113,7 @@ func (e *queryExpectedBased) argsMatches(args []driver.Value) bool {
 	return true
 }
 
-func (e *queryExpectedBased) queryMatches(sql string) bool {
+func (e *argExpectation) queryMatches(sql string) bool {
 	return e.sqlRegex.MatchString(sql)
 }
 
@@ -121,7 +121,7 @@ func (e *queryExpectedBased) queryMatches(sql string) bool {
 // database or within a transaction
 type ExpectedQuery struct {
 	commonExpectation
-	queryExpectedBased
+	argExpectation
 	rows driver.Rows // the rows to be returned by this query
 }
 
@@ -149,7 +149,7 @@ func (e *ExpectedQuery) WillReturnRows(rows driver.Rows) *ExpectedQuery {
 // database or within a transaction
 type ExpectedExec struct {
 	commonExpectation
-	queryExpectedBased
+	argExpectation
 	result driver.Result // the result to be returned
 
 }

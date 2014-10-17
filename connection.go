@@ -6,6 +6,10 @@ import (
 	"reflect"
 )
 
+type expectation interface {
+	fulfilled() bool
+}
+
 type conn struct {
 	expectations []expectation
 	active       expectation
@@ -32,7 +36,7 @@ func (c *conn) Begin() (driver.Tx, error) {
 		return nil, fmt.Errorf("all expectations were already fulfilled, call to begin transaction was not expected")
 	}
 
-	etb, ok := e.(*expectedBegin)
+	etb, ok := e.(*ExpectedBegin)
 	if !ok {
 		return nil, fmt.Errorf("call to begin transaction, was not expected, next expectation is %T as %+v", e, e)
 	}
@@ -57,7 +61,7 @@ func (c *conn) Exec(query string, args []driver.Value) (res driver.Result, err e
 		return nil, fmt.Errorf("all expectations were already fulfilled, call to exec '%s' query with args %+v was not expected", query, args)
 	}
 
-	eq, ok := e.(*expectedExec)
+	eq, ok := e.(*ExpectedExec)
 	if !ok {
 		return nil, fmt.Errorf("call to exec query '%s' with args %+v, was not expected, next expectation is %T as %+v", query, args, e, e)
 	}
@@ -91,7 +95,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	if e == nil {
 		return &statement{c, stripQuery(query)}, nil
 	}
-	eq, ok := e.(*expectedPrepare)
+	eq, ok := e.(*ExpectedPrepare)
 	if !ok {
 		return &statement{c, stripQuery(query)}, nil
 	}
@@ -111,7 +115,7 @@ func (c *conn) Query(query string, args []driver.Value) (rw driver.Rows, err err
 		return nil, fmt.Errorf("all expectations were already fulfilled, call to query '%s' with args %+v was not expected", query, args)
 	}
 
-	eq, ok := e.(*expectedQuery)
+	eq, ok := e.(*ExpectedQuery)
 	if !ok {
 		return nil, fmt.Errorf("call to query '%s' with args %+v, was not expected, next expectation is %T as %+v", query, args, e, e)
 	}

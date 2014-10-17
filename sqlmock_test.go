@@ -9,14 +9,14 @@ import (
 // test the case when db is not triggered and expectations
 // are not asserted on close
 func TestIssue4(t *testing.T) {
-	mock, db, err := New()
+	mock, _, err := New()
 	if err != nil {
 		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 	mock.ExpectQuery("some sql query which will not be called").
 		WillReturnRows(NewRows([]string{"id"}))
 
-	err = db.Close()
+	err = mock.Close()
 	if err == nil {
 		t.Errorf("Was expecting an error, since expected query was not matched")
 	}
@@ -25,7 +25,7 @@ func TestIssue4(t *testing.T) {
 func TestMockQuery(t *testing.T) {
 	mock, db, err := New()
 	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
 	}
 
 	rs := NewRows([]string{"id", "title"}).FromCSVString("5,hello world")

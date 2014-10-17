@@ -113,8 +113,8 @@ func (d *mockDriver) Open(dsn string) (driver.Conn, error) {
 
 	c, ok := d.connections[dsn]
 	if ok {
-		// This should never happen, but just in case of insanity
-		return nil, errors.New("DSN collision error")
+		// The SQL driver will return the same connection multiple times
+		return c, nil
 	}
 	c = &conn{}
 	d.connections[dsn] = c
@@ -163,7 +163,7 @@ func New() (*MockDB, *sql.DB, error) {
 	}
 
 	// Grab a DB from the sql package
-	db, err = sql.Open("mock", dsn)
+	db, err = sql.Open(dbDriver.driverName, dsn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,6 +173,6 @@ func New() (*MockDB, *sql.DB, error) {
 		return nil, nil, errors.New("Failed when looking up connection")
 	}
 
-	// TODO: Fix this
-	return nil, db, err
+	mockDB := &MockDB{conn}
+	return mockDB, db, err
 }

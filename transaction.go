@@ -14,7 +14,7 @@ func (tx *transaction) Commit() error {
 		return fmt.Errorf("all expectations were already fulfilled, call to commit transaction was not expected")
 	}
 
-	etc, ok := e.(*expectedCommit)
+	etc, ok := e.(*ExpectedCommit)
 	if !ok {
 		return fmt.Errorf("call to commit transaction, was not expected, next expectation was %v", e)
 	}
@@ -28,7 +28,7 @@ func (tx *transaction) Rollback() error {
 		return fmt.Errorf("all expectations were already fulfilled, call to rollback transaction was not expected")
 	}
 
-	etr, ok := e.(*expectedRollback)
+	etr, ok := e.(*ExpectedRollback)
 	if !ok {
 		return fmt.Errorf("call to rollback transaction, was not expected, next expectation was %v", e)
 	}
