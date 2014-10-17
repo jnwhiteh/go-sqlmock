@@ -6,6 +6,11 @@ import (
 	"regexp"
 )
 
+type expectation interface {
+	// fulfilled returns whether or not the expectation was fulfilled
+	fulfilled() bool
+}
+
 // commonExpectation is a set of attributes that are common to all
 // expectations.
 type commonExpectation struct {

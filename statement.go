@@ -5,8 +5,8 @@ import (
 )
 
 type statement struct {
-	conn  *conn
-	query string
+	mockConn *mockConn
+	query    string
 }
 
 func (stmt *statement) Close() error {
@@ -18,9 +18,9 @@ func (stmt *statement) NumInput() int {
 }
 
 func (stmt *statement) Exec(args []driver.Value) (driver.Result, error) {
-	return stmt.conn.Exec(stmt.query, args)
+	return stmt.mockConn.Exec(stmt.query, args)
 }
 
 func (stmt *statement) Query(args []driver.Value) (driver.Rows, error) {
-	return stmt.conn.Query(stmt.query, args)
+	return stmt.mockConn.Query(stmt.query, args)
 }

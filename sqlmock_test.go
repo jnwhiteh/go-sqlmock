@@ -1,10 +1,52 @@
 package sqlmock
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 )
+
+func cancelOrder(db *sql.DB, orderId int) error {
+	tx, _ := db.Begin()
+	_, _ = tx.Query("SELECT * FROM orders {0} FOR UPDATE", orderId)
+	_ = tx.Rollback()
+	return nil
+}
+
+func Example() {
+	// Open new mock database
+	mock, db, err := New()
+	if err != nil {
+		fmt.Println("error creating mock")
+		return
+	}
+	// columns to be used for result
+	columns := []string{"id", "status"}
+	// expect transaction begin
+	mock.ExpectBegin()
+	// expect query to fetch order, match it with regexp
+	mock.ExpectQuery("SELECT (.+) FROM orders (.+) FOR UPDATE").
+		WithArgs(1).
+		WillReturnRows(NewRows(columns).FromCSVString("1,1"))
+	// expect transaction rollback, since order status is "cancelled"
+	mock.ExpectRollback()
+
+	// run the cancel order function
+	someOrderId := 1
+	// call a function which executes expected database operations
+	err = cancelOrder(db, someOrderId)
+	if err != nil {
+		fmt.Printf("unexpected error: %s", err)
+		return
+	}
+
+	// ensure all expectations have been met
+	if err = mock.Close(); err != nil {
+		fmt.Printf("unexpected error on close: %s", err)
+	}
+	// Output:
+}
 
 // test the case when db is not triggered and expectations
 // are not asserted on close

@@ -1,13 +1,29 @@
 package sqlmock
 
-import "regexp"
+import (
+	"regexp"
+	"testing"
+)
 
 // MockDB is returned by the sqlmock package and is used to specify and
 // validate expectations.
 type MockDB struct {
-	c *conn
+	c *mockConn
 }
 
+// CloseTest can be used to check for any unmet expectations, for example at
+// the conclusion of a test. It can be called with defer and will still fail
+// the test appropriately.
+func (m *MockDB) CloseTest(t *testing.T) error {
+	err := m.c.Close()
+	if err != nil {
+		t.Error(err)
+	}
+	return nil
+}
+
+// Close will check for any unmet expectations and close the underlying
+// database connection.
 func (m *MockDB) Close() error {
 	return m.c.Close()
 }

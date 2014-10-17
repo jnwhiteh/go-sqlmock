@@ -1,5 +1,4 @@
 /*
-
 Package sqlmock provides sql driver mock connecection, which allows to test database,
 create expectations and ensure the correct execution flow of any database operations.
 It hooks into Go standard library's database/sql package.
@@ -21,59 +20,41 @@ to work with:
 
     // will test that order with a different status, cannot be cancelled
     func TestShouldNotCancelOrderWithNonPendingStatus(t *testing.T) {
-        // open database stub
-        db, err := sql.Open("mock", "")
-        if err != nil {
-            t.Errorf("An error '%s' was not expected when opening a stub database connection", err)
-        }
+		// Open new mock database
+		mock, db, err := sqlmock.New()
+		if err != nil {
+			t.Error("error creating mock")
+			return
+		}
 
-        // columns to be used for result
-        columns := []string{"id", "status"}
-        // expect transaction begin
-        sqlmock.ExpectBegin()
-        // expect query to fetch order, match it with regexp
-        sqlmock.ExpectQuery("SELECT (.+) FROM orders (.+) FOR UPDATE").
-            WithArgs(1).
-            WillReturnRows(sqlmock.NewRows(columns).FromCSVString("1,1"))
-        // expect transaction rollback, since order status is "cancelled"
-        sqlmock.ExpectRollback()
+		// columns to be used for result
+		columns := []string{"id", "status"}
+		// expect transaction begin
+		mock.ExpectBegin()
+		// expect query to fetch order, match it with regexp
+		mock.ExpectQuery("SELECT (.+) FROM orders (.+) FOR UPDATE").
+			WithArgs(1).
+			WillReturnRows(sqlmock.NewRows(columns).FromCSVString("1,1"))
+		// expect transaction rollback, since order status is "cancelled"
+		mock.ExpectRollback()
 
-        // run the cancel order function
-        someOrderId := 1
-        // call a function which executes expected database operations
-        err = cancelOrder(someOrderId, db)
-        if err != nil {
-            t.Errorf("Expected no error, but got %s instead", err)
-        }
-        // db.Close() ensures that all expectations have been met
-        if err = db.Close(); err != nil {
-            t.Errorf("Error '%s' was not expected while closing the database", err)
-        }
-    }
+		// run the cancel order function
+		someOrderId := 1
+		// call a function which executes expected database operations
+		err = cancelOrder(db, someOrderId)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err)
+		}
 
-
-
-func TestMigrationApplied(t *testing.T) {
-    // Create a new DB instance and arrange for expectation checks (on defer)
-    dbMock, db, err := mocksql.New()
-    defer dbMock.Check(t)
-
-    // Arrange for the right response to be returned
-    dbMock.ExpectQuery("SELECT version FROM migrate LIMIT 1").
-    	WillReturnRows(sqlmock.Rows(columns).FromCSVString("1,1"))
-
-    // Call function that requires the database
-    err := emigrate.Migrate(db, 1)
-    if err != nil {
-    	t.Fatalf("Unexpected error: %s", err)
-    }
-}
+		// ensure all expectations have been met
+		mock.CloseTest(t)
+	}
 
 */
-
 package sqlmock
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -81,77 +62,63 @@ import (
 	"sync"
 )
 
-// The global instance of the database driver
+// A global instance of the database driver
 var dbDriver *mockDriver
 
-type mockDriver struct {
-	driverName  string
-	sequence    int
-	connections map[string]*conn
-	mu          *sync.Mutex
-}
-
 func init() {
-	driverName := fmt.Sprintf("mocksql-%p", new(int))
-
-	// Create a new driver and register with the database/sql package
 	dbDriver = &mockDriver{
-		driverName:  driverName,
-		sequence:    0,
-		connections: make(map[string]*conn),
-		mu:          new(sync.Mutex),
+		conns: make(map[string]*mockConn), // a map from DSN to connection
+		mu:    new(sync.RWMutex),          // mutex for connMap
 	}
-	sql.Register(driverName, dbDriver)
+	sql.Register("mock", dbDriver)
 }
 
-// Open satisfiies the database/sql/driver.Open interface, but is only called
-// internally from the New() method. This is accomplished by uniquely
-// generating and not publishing the name of the database driver.
+// mockDriver satisfies the sql/driver.Driver interface and is used to
+// instantiate new connections to the mock database.
+type mockDriver struct {
+	conns map[string]*mockConn
+	mu    *sync.RWMutex
+}
+
+// Open a new connection to the mock database. This connection is not safe for
+// use by multiple goroutines at a time, but multiple connections to different
+// DSNs are supported.
 func (d *mockDriver) Open(dsn string) (driver.Conn, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	c, ok := d.connections[dsn]
+	c, ok := d.conns[dsn]
 	if ok {
-		// The SQL driver will return the same connection multiple times
 		return c, nil
 	}
-	c = &conn{}
-	d.connections[dsn] = c
+
+	c = &mockConn{}
+	d.conns[dsn] = c
 	return c, nil
 }
 
-// reserveDSN increments the sequence counter and returns a DSN string that
-// will be unique.
-func (d *mockDriver) reserveDSN() string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	dsn := fmt.Sprintf("mocksql://db/%d", d.sequence)
-	d.sequence++
-	return dsn
-}
-
-// getConnection fetches the connection object that is tied to the given DSN
-func (d *mockDriver) getConnection(dsn string) *conn {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	conn, ok := d.connections[dsn]
-	if ok {
-		return conn
+// generateDSN creates a new random string that can be used as a DSN in the
+// call to Open.
+func generateDSN() (string, error) {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	return fmt.Sprintf("mocksql://%x", b), nil
 }
 
 // Create a new MockDB that can be used to state and verify expectations for
-// interaction with a database.
+// interaction with a database. For completeness, the Check() method should be
+// called on the mock object to validate any outstanding expectations.
 func New() (*MockDB, *sql.DB, error) {
-	// Reserve a DSN for this connection
-	dsn := dbDriver.reserveDSN()
+	dsn, err := generateDSN()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Use the database/sql package to open the new connection
-	db, err := sql.Open(dbDriver.driverName, dsn)
+	db, err := sql.Open("mock", dsn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,17 +129,20 @@ func New() (*MockDB, *sql.DB, error) {
 		return nil, nil, err
 	}
 
-	// Grab a DB from the sql package
-	db, err = sql.Open(dbDriver.driverName, dsn)
+	// Grab the underlying DB connection from the driver
+	db, err = sql.Open("mock", dsn)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Fetch the underlying connection for this DSN
-	conn := dbDriver.getConnection(dsn)
-	if conn == nil {
+	dbDriver.mu.RLock()
+	defer dbDriver.mu.RUnlock()
+
+	mockConn, ok := dbDriver.conns[dsn]
+	if !ok {
 		return nil, nil, errors.New("Failed when looking up connection")
 	}
 
-	mockDB := &MockDB{conn}
+	mockDB := &MockDB{mockConn}
 	return mockDB, db, err
 }

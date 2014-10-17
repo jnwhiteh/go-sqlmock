@@ -6,31 +6,38 @@ import (
 	"reflect"
 )
 
-type expectation interface {
-	fulfilled() bool
-}
-
-type conn struct {
+// mockConn is an implementation of the database/sql/driver.Conn interface. It
+// is designed to be used behind a sql.DB rather than accessed directly.
+type mockConn struct {
 	expectations []expectation
 	active       expectation
 }
 
-// Close a mock database driver Connection. It should
-// be always called to ensure that all expectations
-// were met successfully. Returns error if there is any
-func (c *conn) Close() (err error) {
+// next returns the next unfulfilled expectation for this connection
+func (c *mockConn) next() (e expectation) {
+	for _, e = range c.expectations {
+		if !e.fulfilled() {
+			return
+		}
+	}
+	return nil // all expectations were fulfilled
+}
+
+// Close will close the mock database connection and ensures that all
+// expectations were met successfully.
+func (c *mockConn) Close() (err error) {
 	for _, e := range c.expectations {
 		if !e.fulfilled() {
 			err = fmt.Errorf("there is a remaining expectation %T which was not matched yet", e)
 			break
 		}
 	}
-	c.expectations = []expectation{}
+	c.expectations = nil
 	c.active = nil
 	return err
 }
 
-func (c *conn) Begin() (driver.Tx, error) {
+func (c *mockConn) Begin() (driver.Tx, error) {
 	e := c.next()
 	if e == nil {
 		return nil, fmt.Errorf("all expectations were already fulfilled, call to begin transaction was not expected")
@@ -44,17 +51,7 @@ func (c *conn) Begin() (driver.Tx, error) {
 	return &transaction{c}, etb.err
 }
 
-// get next unfulfilled expectation
-func (c *conn) next() (e expectation) {
-	for _, e = range c.expectations {
-		if !e.fulfilled() {
-			return
-		}
-	}
-	return nil // all expectations were fulfilled
-}
-
-func (c *conn) Exec(query string, args []driver.Value) (res driver.Result, err error) {
+func (c *mockConn) Exec(query string, args []driver.Value) (res driver.Result, err error) {
 	e := c.next()
 	query = stripQuery(query)
 	if e == nil {
@@ -88,7 +85,7 @@ func (c *conn) Exec(query string, args []driver.Value) (res driver.Result, err e
 	return eq.result, err
 }
 
-func (c *conn) Prepare(query string) (driver.Stmt, error) {
+func (c *mockConn) Prepare(query string) (driver.Stmt, error) {
 	e := c.next()
 
 	// for backwards compatibility, ignore when Prepare not expected
@@ -108,7 +105,7 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	return &statement{c, stripQuery(query)}, nil
 }
 
-func (c *conn) Query(query string, args []driver.Value) (rw driver.Rows, err error) {
+func (c *mockConn) Query(query string, args []driver.Value) (rw driver.Rows, err error) {
 	e := c.next()
 	query = stripQuery(query)
 	if e == nil {

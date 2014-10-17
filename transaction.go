@@ -5,11 +5,11 @@ import (
 )
 
 type transaction struct {
-	conn *conn
+	mockConn *mockConn
 }
 
 func (tx *transaction) Commit() error {
-	e := tx.conn.next()
+	e := tx.mockConn.next()
 	if e == nil {
 		return fmt.Errorf("all expectations were already fulfilled, call to commit transaction was not expected")
 	}
@@ -23,7 +23,7 @@ func (tx *transaction) Commit() error {
 }
 
 func (tx *transaction) Rollback() error {
-	e := tx.conn.next()
+	e := tx.mockConn.next()
 	if e == nil {
 		return fmt.Errorf("all expectations were already fulfilled, call to rollback transaction was not expected")
 	}
